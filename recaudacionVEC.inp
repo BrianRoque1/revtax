@@ -1,0 +1,107 @@
+#______________________________________________________________________________
+clear
+set verbose off
+set echo off
+#Cargar base de datos y renombrar variables
+open \
+  "/Users/brianroque/Documents/BaseimpuestosVEC.xlsx" --coloffset=2 --sheet=1 
+setobs 12 1990:01 --time-series  
+
+smpl 2005:01 2023:03
+
+scalar Sample = $nobs
+
+
+T1 =deseas(isrreal)
+T2=deseas(ivareal)
+Y = deseas(PIBreal)
+T = deseas(tribreal)
+U = deseas(PEA)
+Yus = deseas(USGDP)
+O= deseas(WTI)
+
+#---------------------------------------------------------------------------- 
+#Crear listas y escalares para la funcion vecm
+list Vcoint  = log(Y) log(U) log(T) 
+list Vrest   = log(O)
+list Vunrest = D2008 defunciones
+Clag = 4 #lags
+Coin = 1 #vectores cointegrantes
+
+#---------------------------------------------------------------------------- 
+#VECM
+johansen Clag Vcoint; Vunrest; Vrest --uc --quiet #prueba de johansen
+vecm Clag Coin Vcoint; Vunrest; Vrest --uc --silent #constante restringida
+restrict --full
+    b[3]= 1
+    #  b[4]= 0   #restricciones de los coeficientes de largo plazo (b) y de
+ #  b[2]= 0      #corrección de error (a)
+  #  b[1]=0
+  #  a[1]=0
+  # a[2] = 0
+   #   a[3] = 0
+end restrict
+
+
+#---------------------------------------------------------------------------- 
+#Pruebas del modelo
+scalar TestLag = 12
+modtest --normality TestLag #normalidad
+
+modtest --autocorr TestLag #autocorrelación
+modtest --arch TestLag  #heteroscedasticidad
+
+
+
+#fcast 2020:03 2023:03 l_Y  #Forecast de cada variable
+#fcast 2020:03 2023:03 l_U
+fcast 2005:01 2023:03 l_T
+
+
+#---------------------------------------------------------------------------- 
+# Impulso respuesta y descomposición de varianza:
+#----------------------------------------------------------------------------
+
+set horizon Sample
+
+genr Ejele = zeros(Sample,1)
+loop i = 1..Sample
+    Ejele[i] = i-1
+endloop
+series EJExaxis = Ejele
+
+matrix irf1 = irf(3,1,0.05)  #choque del ingreso sobre los impuestos al 95 % de confianza
+series IRFyaxis1 = irf1[,1]
+#---------------------------------------------------------------------------- 
+#Transforma linealmente a la función de impulso respuesta para que responda a 
+#un cambio de 1% en el producto
+matrix irfpib = irf(1,1) #choque del ingreso sobre el ingreso
+scalar first_element = 1 / irfpib[1,1]
+
+#---------------------------------------------------------------------------- 
+#impulso respuesta con sus intervalos de confianza
+series irfisr = first_element * IRFyaxis1
+series irf1lower =first_element *irf1[,2]
+series irf1upper = first_element *irf1[,3]
+
+#---------------------------------------------------------------------------- 
+#Descomposición de la varianza del error
+matrix FEVD1 = fevd(3,0)
+series fevdpib = FEVD1[,1]
+series fevdunem = FEVD1[,2]
+series fevdtax = FEVD1[,3]
+
+
+
+
+#---------------------------------------------------------------------------- 
+#Gráfica de la función de impulso respuesta
+grf1 <- gnuplot irfisr EJExaxis --with-lines --fit=none --single-yaxis --output="display" \
+  { set ylabel "Response";  set xlabel "Period"; set title '(b) IRF: choque del ingreso \
+  sobre los impuestos ante un cambio de 1% en el producto'; }
+  
+
+
+
+
+
